@@ -1,0 +1,16 @@
+Sample verbose output. Note the constant Reason message and metadata available in the response using a precondition versus the human-readable message without an ErrorDetails struct when simply sending the CREATE request.
+
+```=== RUN   TestCreateExistingRelationshipWithoutPrecondition
+    main_test.go:130: 
+                Error Trace:    /home/wscalf/Projects/repro/main_test.go:130
+                                                        /home/wscalf/Projects/repro/main_test.go:78
+                Error:          No detail elements
+                Test:           TestCreateExistingRelationshipWithoutPrecondition
+                Messages:       Status has no details: rpc error: code = Unknown desc = could not CREATE relationship `access:blue#assigned@user:alice`, as it already existed. If this is persistent, please switch to TOUCH operations or specify a precondition
+--- FAIL: TestCreateExistingRelationshipWithoutPrecondition (1.02s)
+=== RUN   TestCreateExistingRelationshipWithPrecondition
+    main_test.go:125: Got detailed info: reason:"ERROR_REASON_WRITE_OR_DELETE_PRECONDITION_FAILURE" domain:"authzed.com" metadata:{key:"precondition_operation" value:"OPERATION_MUST_NOT_MATCH"} metadata:{key:"precondition_relation" value:"assigned"} metadata:{key:"precondition_resource_id" value:"blue"} metadata:{key:"precondition_resource_type" value:"access"} metadata:{key:"precondition_subject_id" value:"alice"} metadata:{key:"precondition_subject_type" value:"user"}
+--- PASS: TestCreateExistingRelationshipWithPrecondition (0.01s)
+FAIL
+FAIL    example.com/repro       1.854s
+FAIL```
