@@ -14,8 +14,10 @@ import (
 	"github.com/google/uuid"
 	"github.com/ory/dockertest/v3"
 	"github.com/stretchr/testify/assert"
+	"google.golang.org/genproto/googleapis/rpc/errdetails"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/status"
 )
 
 var port string
@@ -33,7 +35,7 @@ func TestMain(m *testing.M) {
 
 	resource, err := pool.RunWithOptions(&dockertest.RunOptions{
 		Repository:   "authzed/spicedb",
-		Tag:          "v1.17.0", // Replace this with an actual version
+		Tag:          "v1.21.0", // Replace this with an actual version
 		Cmd:          []string{"serve-testing", "--load-configs", "/mnt/spicedb_bootstrap.yaml"},
 		Mounts:       []string{path.Join(basepath, "spicedb_bootstrap.yaml") + ":/mnt/spicedb_bootstrap.yaml"},
 		ExposedPorts: []string{"50051/tcp"},
@@ -50,28 +52,85 @@ func TestMain(m *testing.M) {
 	os.Exit(result)
 }
 
-func TestCheckPermission(t *testing.T) {
-	for i := 0; i < 1000; i++ {
-		client, err := NewConnection()
-		assert.NoError(t, err)
+func TestCreateExistingRelationshipWithoutPrecondition(t *testing.T) {
+	client, err := NewConnection()
+	assert.NoError(t, err)
 
-		result, err := client.CheckPermission(context.Background(), &v1.CheckPermissionRequest{
-			Resource: &v1.ObjectReference{
-				ObjectType: "access",
-				ObjectId:   "blue",
-			},
-			Permission: "assigned",
-			Subject: &v1.SubjectReference{
-				Object: &v1.ObjectReference{
-					ObjectType: "user",
-					ObjectId:   "alice",
+	_, err = client.WriteRelationships(context.Background(), &v1.WriteRelationshipsRequest{
+		Updates: []*v1.RelationshipUpdate{{
+			Operation: v1.RelationshipUpdate_OPERATION_CREATE,
+			Relationship: &v1.Relationship{
+				Resource: &v1.ObjectReference{
+					ObjectType: "access",
+					ObjectId:   "blue",
+				},
+				Relation: "assigned",
+				Subject: &v1.SubjectReference{
+					Object: &v1.ObjectReference{
+						ObjectType: "user",
+						ObjectId:   "alice",
+					},
 				},
 			},
-		})
+		}},
+	})
 
-		assert.NoError(t, err)
+	assertDetailedError(t, err)
+}
 
-		assert.Equal(t, v1.CheckPermissionResponse_PERMISSIONSHIP_HAS_PERMISSION, result.Permissionship, "Error on attempt #%d", i)
+func TestCreateExistingRelationshipWithPrecondition(t *testing.T) {
+	client, err := NewConnection()
+	assert.NoError(t, err)
+
+	_, err = client.WriteRelationships(context.Background(), &v1.WriteRelationshipsRequest{
+		Updates: []*v1.RelationshipUpdate{{
+			Operation: v1.RelationshipUpdate_OPERATION_CREATE,
+			Relationship: &v1.Relationship{
+				Resource: &v1.ObjectReference{
+					ObjectType: "access",
+					ObjectId:   "blue",
+				},
+				Relation: "assigned",
+				Subject: &v1.SubjectReference{
+					Object: &v1.ObjectReference{
+						ObjectType: "user",
+						ObjectId:   "alice",
+					},
+				},
+			},
+		}},
+		OptionalPreconditions: []*v1.Precondition{{
+			Operation: v1.Precondition_OPERATION_MUST_NOT_MATCH,
+			Filter: &v1.RelationshipFilter{
+				ResourceType:       "access",
+				OptionalResourceId: "blue",
+				OptionalRelation:   "assigned",
+				OptionalSubjectFilter: &v1.SubjectFilter{
+					SubjectType:       "user",
+					OptionalSubjectId: "alice",
+				},
+			},
+		}},
+	})
+
+	assertDetailedError(t, err)
+}
+
+func assertDetailedError(t *testing.T, err error) {
+	assert.Error(t, err)
+
+	if s, ok := status.FromError(err); ok {
+		if len(s.Details()) > 0 {
+			if info := s.Details()[0].(*errdetails.ErrorInfo); ok {
+				t.Logf("Got detailed info: %v", info)
+			} else {
+				assert.Failf(t, "Detail element not ErrorInfo", "Detail elements present but unable to coerce to ErrorInfo ptr. Actual: %v", s.Details())
+			}
+		} else {
+			assert.Failf(t, "No detail elements", "Status has no details: %v", s)
+		}
+	} else {
+		assert.Failf(t, "No status for error", "Unable to extract status from error: %v")
 	}
 }
 
